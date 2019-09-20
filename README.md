@@ -5,6 +5,8 @@ This repository demonstrates a minimal, reproducible example (*reprex*) of a per
 
 **In summary**: We expect 63 GiB/s bandwidth, but mostly get only between 1-2 GiB/s.
 
+[Link to Nvidia DevTalk post.](https://devtalk.nvidia.com/default/topic/1063552/cuda-programming-and-performance/unified-memory-has-slow-bandwidth-over-nvlink-2-0-for-large-data-sizes/post/5385699/#5385699)
+
 ## Reproducing the problem
 After downloading this repository, compile and run the example with:
 ```sh
