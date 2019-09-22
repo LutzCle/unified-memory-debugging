@@ -107,4 +107,46 @@ Throughput: 0.94333 GiB/s
 ```
 **Diagnosis:** This is where our problem sets in. The first run transfers data fast-ish. Subsequent runs are much slower than we would like. We expect all runs to have the same bandwidth as the first run. Ideally, bandwidth would equal our baseline at 63 GiB/s.
 
-Could the slow bandwidth be a problem in the buffer manager's eviction logic?
+### Control group: x86-64 with PCI-e
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
+```sh
+Running on device 0 with grid dim 160 and block dim 128
+Managed memory enabled
+Running read kernel
+Throughput: 2.16685 GiB/s
+Throughput: 2.17654 GiB/s
+Throughput: 2.16583 GiB/s
+Throughput: 3.09534 GiB/s
+Throughput: 2.15913 GiB/s
+```
+** Diagnosis**: Similar to the POWER9, on x86 we measure less bandwidth than the maximum of ~11 GiB/s would suggest. What's interesting is that bandwidth tends to be higher than the same benchmark on POWER9 above.
+
+### Control group: x86-64 with tuning
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`, `ADVISE_ACCESSED_BY`
+```sh
+Running on device 0 with grid dim 160 and block dim 128
+Managed memory enabled
+cudaMemAdviseSetAccessedBy enabled
+Running read kernel
+Throughput: 11.2909 GiB/s
+Throughput: 10.8055 GiB/s
+Throughput: 10.7137 GiB/s
+Throughput: 11.4643 GiB/s
+Throughput: 11.0659 GiB/s
+```
+**Diagnosis**: Unlike on POWER9, setting `ADVISE_ACCESSED_BY` consistently increases bandwidth to essentially the maximum measureable bandwidth of PCI-e.
+
+### Control group: x86-64 with migration resistance
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`, `ADVISE_PREFERRED_LOCATION_CPU`
+```sh
+Running on device 0 with grid dim 160 and block dim 128
+Managed memory enabled
+cudaMemAdviseSetPreferredLocation CPU enabled
+Running read kernel
+Throughput: 0.530865 GiB/s
+Throughput: 10.8151 GiB/s
+Throughput: 11.0768 GiB/s
+Throughput: 11.4706 GiB/s
+Throughput: 11.4655 GiB/s
+```
+**Diagnosis**: When setting `ADVISE_PREFERRED_LOCATION_CPU` instead of `ADVISE_ACCESSED_BY`, the first run is very slow at only 0.5 GiB/s. After that, we consistently reach the maximum bandwidth again.
