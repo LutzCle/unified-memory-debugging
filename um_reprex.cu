@@ -36,6 +36,8 @@
 // If defined, then set the memAdviseSetReadMostly flag
 // #define ADVISE_READ_MOSTLY
 
+#define ADVISE_PREFERRED_LOCATION_CPU
+
 // If defined, then touch the data on the host between kernel launches to avoid
 // device-side caching
 // #define TOUCH_ON_HOST
@@ -133,6 +135,11 @@ int main() {
 #ifdef ADVISE_ACCESSED_BY
     CHECK_CUDA(cudaMemAdvise(data, SIZE * sizeof(int), cudaMemAdviseSetAccessedBy, DEVICE_ID));
     std::cout << "cudaMemAdviseSetAccessedBy enabled" << std::endl;
+#endif
+
+#ifdef ADVISE_PREFERRED_LOCATION_CPU
+    CHECK_CUDA(cudaMemAdvise(data, SIZE * sizeof(int), cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId));
+    std::cout << "cudaMemAdviseSetPreferredLocation CPU enabled" << std::endl;
 #endif
 
 #else
