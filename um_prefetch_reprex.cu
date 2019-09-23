@@ -118,7 +118,10 @@ int main() {
         << "Running on device " << DEVICE_ID
         << " with grid dim " << GRID_DIM
         << " and block dim " << BLOCK_DIM
-        << " and prefetching " << SIZE / PREFETCH_SIZE << " data blocks"
+        << std::endl;
+
+    std::cout
+        << "Prefetching " << PREFETCH_SIZE * sizeof(int) / 1024 / 1024 << " MiB data blocks"
         << std::endl;
 
     // Set CUDA device
