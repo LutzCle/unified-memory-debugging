@@ -1,7 +1,7 @@
 CUDA Unified Memory Bandwidth Debugging
 ======================================
 
-This repository demonstrates a minimal, reproducible example (*reprex*) of a performance issue. The issue concerns CUDA Unified Memory on an IBM AC922 system.
+This repository contains two minimal, reproducible examples (*reprex*) to debug a performance issue on an IBM AC922 system. One example uses CUDA Unified Memory, and the other uses Unified Memory with asynchronous prefetching.
 
 **In summary**: We expect 63 GiB/s bandwidth, but mostly get only between 1-2 GiB/s.
 
@@ -14,7 +14,7 @@ After downloading this repository, compile and run the example with:
 ```
 
 ## Configuration parameters
-In the file `um_reprex.cu`, there are several configuration parameters:
+In the files `um_reprex.cu` and `um_prefetch_reprex.cu`, there are several configuration parameters:
  - USE_MANAGED: If defined, the reprex allocates Unified Memory. Otherwise, NUMA-local system memory is allocated with `numa_alloc_onnode`.
  - ADVISE_ACCESSED_BY: If defined, then set CUDA's memAdviseSetAccessedBy flag on the Unified Memory array.
  - ADVISE_READ_MOSTLY: If defined, then set the memAdviseSetReadMostly flag on the Unified Memory array.
@@ -27,7 +27,7 @@ In the file `um_reprex.cu`, there are several configuration parameters:
  - NUMA_NODE: NUMA node to run program and allocate NUMA-local memory on. Default is node 0.
 
 ## Measurements
-In the following, we demonstrate our performance issue. We conduct our measurments on this system:
+In the following, we demonstrate our performance issue. Unless noted otherwise, we run the example `um_reprex.cu` and conduct our measurments on this system:
  - IBM AC922 with POWER9 and Tesla V100
  - Ubuntu 18.04 LTS ppc64le
  - Kernel 5.0.0-25-generic
@@ -140,6 +140,23 @@ Throughput: 63.417 GiB/s
 Throughput: 63.3982 GiB/s
 ```
 **Observations:** By setting up the page mappings ahead of the kernel launch in addition to resisting page migration, even the first run is equal to our baseline!
+
+### Large data with prefetching: Slow as without any tuning
+**Example**: `um_prefetch_reprex.cu`
+
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
+```sh
+Running on device 0 with grid dim 160 and block dim 128
+Prefetching 16 MiB data blocks
+Managed memory enabled
+Running read kernel
+Throughput: 3.06278 GiB/s
+Throughput: 1.69091 GiB/s
+Throughput: 1.69134 GiB/s
+Throughput: 1.69128 GiB/s
+Throughput: 1.69109 GiB/s
+```
+**Observations:** Prefetching blocks ahead of kernel launch does not improve bandwidth over vanilla Unified Memory.
 
 ### Control group: x86-64 with PCI-e
 **Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
