@@ -108,7 +108,7 @@ Throughput: 0.94333 GiB/s
 ```
 **Observations:** This is where our problem sets in. The first run transfers data fast-ish. Subsequent runs are much slower than we would like. We expect all runs to have the same bandwidth as the first run. Ideally, bandwidth would equal our baseline at 63 GiB/s.
 
-### Large data with migration resistance: Consistently fast after warm-up
+### Large data with migration resistance: Fast after warm-up
 **Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`, `ADVISE_PREFERRED_LOCATION_CPU`
 ```sh
 Running on device 0 with grid dim 160 and block dim 128
@@ -125,6 +125,22 @@ Throughput: 63.4083 GiB/s
 
 Thank you to [Robert Crovella on Nvidia DevTalk](https://devtalk.nvidia.com/default/topic/1063552/cuda-programming-and-performance/unified-memory-has-slow-bandwidth-over-nvlink-2-0-for-large-data-sizes/post/5385717/#5385717) for suggesting this option!
 
+### Large data with tuning and migration resistance: Consistently fast
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`, `ADVISE_ACCESSED_BY`, `ADVISE_PREFERRED_LOCATION_CPU`
+```sh
+Running on device 0 with grid dim 160 and block dim 128
+Managed memory enabled
+cudaMemAdviseSetAccessedBy enabled
+cudaMemAdviseSetPreferredLocation CPU enabled
+Running read kernel
+Throughput: 63.4137 GiB/s
+Throughput: 63.408 GiB/s
+Throughput: 63.4255 GiB/s
+Throughput: 63.417 GiB/s
+Throughput: 63.3982 GiB/s
+```
+**Observations:** By setting up the page mappings ahead of the kernel launch in addition to resisting page migration, even the first run is equal to our baseline!
+
 ### Control group: x86-64 with PCI-e
 **Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
 ```sh
@@ -140,7 +156,7 @@ Throughput: 2.15913 GiB/s
 ** Observations**: Similar to the POWER9, on x86 we measure less bandwidth than the maximum of ~11 GiB/s would suggest. What's interesting is that bandwidth tends to be higher than the same benchmark on POWER9 above.
 
 ### Control group: x86-64 with tuning
-**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`, `ADVISE_ACCESSED_BY`
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
 ```sh
 Running on device 0 with grid dim 160 and block dim 128
 Managed memory enabled
