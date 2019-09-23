@@ -65,6 +65,7 @@ constexpr int NUMA_NODE = 0;
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <utility>
 #include <cuda_runtime.h>
@@ -167,16 +168,20 @@ int main() {
     CHECK_CUDA(cudaMalloc(&result, sizeof(int)));
 
     // Setup events
-    cudaEvent_t start_timer[2], end_timer[2];
+    cudaEvent_t start_timer[2], end_timer[2], e1, e2, et;
     CHECK_CUDA(cudaEventCreate(&start_timer[0]));
     CHECK_CUDA(cudaEventCreate(&start_timer[1]));
     CHECK_CUDA(cudaEventCreate(&end_timer[0]));
     CHECK_CUDA(cudaEventCreate(&end_timer[1]));
+    CHECK_CUDA(cudaEventCreate(&e1));
+    CHECK_CUDA(cudaEventCreate(&e2));
+    CHECK_CUDA(cudaEventCreate(&et));
 
     // Setup streams
-    cudaStream_t stream[2];
-    CHECK_CUDA(cudaStreamCreateWithFlags(&stream[0], cudaStreamNonBlocking));
-    CHECK_CUDA(cudaStreamCreateWithFlags(&stream[1], cudaStreamNonBlocking));
+    cudaStream_t s1, s2, s3, st;
+    CHECK_CUDA(cudaStreamCreateWithFlags(&s1, cudaStreamNonBlocking));
+    CHECK_CUDA(cudaStreamCreateWithFlags(&s2, cudaStreamNonBlocking));
+    CHECK_CUDA(cudaStreamCreateWithFlags(&s3, cudaStreamNonBlocking));
 
 #ifdef OP_READ
     std::cout << "Running read kernel" << std::endl;
@@ -184,44 +189,50 @@ int main() {
     std::cout << "Running write kernel" << std::endl;
 #endif
 
+    uint64_t num_tiles = SIZE / PREFETCH_SIZE;
     for (unsigned run = 0; run < RUNS; ++run) {
-        CHECK_CUDA(cudaEventRecord(start_timer[0], stream[0]));
-        CHECK_CUDA(cudaEventRecord(start_timer[1], stream[1]));
+        std::chrono::steady_clock::time_point timer_start = std::chrono::steady_clock::now();
 
-        for (uint64_t i = 0; i < (SIZE / PREFETCH_SIZE); ++i) {
-            // Prefetch some data and launch kernel, and measure time
-            CHECK_CUDA(cudaMemPrefetchAsync(&data[i * PREFETCH_SIZE], PREFETCH_SIZE * sizeof(int), DEVICE_ID, stream[0]));
-#ifdef OP_READ
-            read_kernel<<<GRID_DIM, BLOCK_DIM, 0, stream[0]>>>(&data[i * PREFETCH_SIZE], PREFETCH_SIZE, result);
-#else
-            write_kernel<<<GRID_DIM, BLOCK_DIM, 0, stream[0]>>>(&data[i * PREFETCH_SIZE], PREFETCH_SIZE);
-#endif
+        // prefetch first tile
+        cudaMemPrefetchAsync(data, PREFETCH_SIZE * sizeof(int), DEVICE_ID, s2);
+        cudaEventRecord(e1, s2); 
 
-            // Swap stream and keep track of which events track which stream
-            std::swap(stream[0], stream[1]);
-            std::swap(start_timer[0], start_timer[1]);
-            std::swap(end_timer[0], end_timer[1]);
+        for (uint64_t i = 0; i < num_tiles; i++) { 
+            // make sure previous kernel and current tile copy both completed 
+            cudaEventSynchronize(e1);  
+            cudaEventSynchronize(e2);
+
+            // run multiple kernels on current tile 
+            read_kernel<<<GRID_DIM, BLOCK_DIM, 0, s1>>>(&data[i * PREFETCH_SIZE], PREFETCH_SIZE, result);
+            cudaEventRecord(e1, s1); 
+
+            // prefetch next tile to the gpu in a separate stream 
+            if (i < num_tiles-1) {
+                // make sure the stream is idle to force non-deferred HtoD prefetches first 
+                cudaStreamSynchronize(s2);       
+                cudaMemPrefetchAsync(&data[(i + 1) * PREFETCH_SIZE], PREFETCH_SIZE * sizeof(int), DEVICE_ID, s2); 
+                cudaEventRecord(e2, s2); 
+            } 
+
+            // offload current tile to the cpu after the kernel is completed using the deferred path 
+            /* cudaMemPrefetchAsync(a + tile_size * i, tile_size * sizeof(size_t), cudaCpuDeviceId, s1);  */
+
+            // rotate streams and swap events 
+            st = s1; s1 = s2; s2 = st; 
+            st = s2; s2 = s3; s3 = st; 
+            et = e1; e1 = e2; e2 = et; 
         }
-
-        CHECK_CUDA(cudaEventRecord(end_timer[0], stream[0]));
-        CHECK_CUDA(cudaEventRecord(end_timer[1], stream[1]));
 
         // Wait for kernel completion
         CHECK_CUDA(cudaDeviceSynchronize());
 
-        // Calculate the time taken as maximum of all timer combinations
-        float stream_time_ms[4] = {0.0};
-        CHECK_CUDA(cudaEventElapsedTime(&stream_time_ms[0], start_timer[0], end_timer[0]));
-        CHECK_CUDA(cudaEventElapsedTime(&stream_time_ms[1], start_timer[0], end_timer[1]));
-        CHECK_CUDA(cudaEventElapsedTime(&stream_time_ms[2], start_timer[1], end_timer[0]));
-        CHECK_CUDA(cudaEventElapsedTime(&stream_time_ms[3], start_timer[1], end_timer[1]));
-        float time_ms = std::max(stream_time_ms[0], stream_time_ms[1]);
-        time_ms = std::max(time_ms, stream_time_ms[2]);
-        time_ms = std::max(time_ms, stream_time_ms[3]);
+        std::chrono::steady_clock::time_point timer_end = std::chrono::steady_clock::now();
+        std::chrono::milliseconds time_span = std::chrono::duration_cast<std::chrono::milliseconds>(timer_end - timer_start);
+        double time_ms = time_span.count();
 
         // Compute and print throughput in GiB/s
         uint64_t size_GiB = (SIZE * sizeof(int)) / 1024 / 1024 / 1024;
-        double tput = ((double)size_GiB) / ((double)time_ms) * 1000.0;
+        double tput = ((double)size_GiB) / time_ms * 1000.0;
         std::cout << "Throughput: " << tput << " GiB/s" << std::endl;
 
 #ifdef TOUCH_ON_HOST
@@ -232,8 +243,9 @@ int main() {
     }
 
     // Cleanup
-    CHECK_CUDA(cudaStreamDestroy(stream[0]));
-    CHECK_CUDA(cudaStreamDestroy(stream[1]));
+    CHECK_CUDA(cudaStreamDestroy(s1));
+    CHECK_CUDA(cudaStreamDestroy(s2));
+    CHECK_CUDA(cudaStreamDestroy(s3));
     CHECK_CUDA(cudaEventDestroy(start_timer[0]));
     CHECK_CUDA(cudaEventDestroy(start_timer[1]));
     CHECK_CUDA(cudaEventDestroy(end_timer[0]));
