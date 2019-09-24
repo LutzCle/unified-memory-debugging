@@ -3,9 +3,17 @@ CUDA Unified Memory Bandwidth Debugging
 
 This repository contains two minimal, reproducible examples (*reprex*) to debug a performance issue on an IBM AC922 system. One example uses CUDA Unified Memory, and the other uses Unified Memory with asynchronous prefetching.
 
-**In summary**: We expect 63 GiB/s bandwidth, but mostly get only between 1-2 GiB/s.
+**Problem description**: Our baseline using NUMA-local host memory performs at 63 GiB/s. Using demand or prefetch paging, we measure only between 1-2 GiB/s on NVLink 2.0. This seems too slow. Measurements on x86-64 show that more bandwidth is possible, even when using the slower PCI-e 3.0 interconnect.
 
 [Link to Nvidia DevTalk post.](https://devtalk.nvidia.com/default/topic/1063552/cuda-programming-and-performance/unified-memory-has-slow-bandwidth-over-nvlink-2-0-for-large-data-sizes/post/5385699/#5385699)
+
+## Insights
+
+So far, we have gained the following insights:
+
+ - Setting `ADVISE_PREFERRED_LOCATION_CPU` circumvents the bandwidth issue by not migrating the pages. Instead, the GPU accesses pages directly in host memory. The first run is slow, because the first run establishes page mappings.
+ - Pages can be mapped before the first run by setting `ADVISE_PREFERRED_LOCATION_CPU` and `ADVISE_ACCESSED_BY`. With these settings, we achieve the peak bandwidth.
+ - On x86-64, we also achieve peak bandwidth by setting `ADVISE_ACCESSED_BY`.
 
 ## Reproducing the problem
 After downloading this repository, compile and run the example with:
@@ -22,6 +30,7 @@ In the files `um_reprex.cu` and `um_prefetch_reprex.cu`, there are several confi
  - TOUCH_ON_HOST: If defined, touch the data on the host between kernel runs. This is intended to force cache eviction, because Unified Memory caches data in device memory. Mostly useful for data sizes < 16 GiB.
  - OP_READ: If defined, then read data on GPU (host-to-device), else write data on GPU (device-to-host).
  - SIZE: Data size. Default is 32 GiB.
+ - PREFETCH_SIZE: The block size to prefetch at-a-time. Default is 16 MiB.
  - RUNS: Number of kernel runs to measure. Default is 5 runs.
  - DEVICE_ID: CUDA device to run kernels on. Default is device 0.
  - NUMA_NODE: NUMA node to run program and allocate NUMA-local memory on. Default is node 0.
@@ -173,7 +182,7 @@ Throughput: 2.15913 GiB/s
 ** Observations**: Similar to the POWER9, on x86 we measure less bandwidth than the maximum of ~11 GiB/s would suggest. What's interesting is that bandwidth tends to be higher than the same benchmark on POWER9 above.
 
 ### Control group: x86-64 with tuning
-**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`, `ADVISE_ACCESSED_BY`
 ```sh
 Running on device 0 with grid dim 160 and block dim 128
 Managed memory enabled
