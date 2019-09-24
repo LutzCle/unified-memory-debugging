@@ -201,3 +201,20 @@ Throughput: 11.4706 GiB/s
 Throughput: 11.4655 GiB/s
 ```
 **Observations:** When setting `ADVISE_PREFERRED_LOCATION_CPU` instead of `ADVISE_ACCESSED_BY`, the first run is very slow at only 0.5 GiB/s. After that, we consistently reach the maximum bandwidth again.
+
+### Control group: x86-64 with prefetching
+**Example**: `um_prefetch_reprex.cu`
+
+**Parameters**: 32 GiB data, `USE_MANAGED`, `OP_READ`
+```sh
+Running on device 0 with grid dim 160 and block dim 128
+Prefetching 16 MiB data blocks
+Managed memory enabled
+Running read kernel
+Throughput: 8.95776 GiB/s
+Throughput: 7.58894 GiB/s
+Throughput: 7.58695 GiB/s
+Throughput: 7.5479 GiB/s
+Throughput: 7.52528 GiB/s
+```
+**Observations:** Prefetching improves bandwidth over the base settings, but still falls short of the maximum achievable bandwidth (~11 GiB/s).
